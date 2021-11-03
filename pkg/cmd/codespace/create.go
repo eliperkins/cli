@@ -8,29 +8,35 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/cli/cli/v2/internal/codespaces"
 	"github.com/cli/cli/v2/internal/codespaces/api"
+	"github.com/cli/cli/v2/internal/ghrepo"
+	"github.com/cli/cli/v2/pkg/cmdutil"
 	"github.com/spf13/cobra"
 )
 
 type createOptions struct {
-	repo       string
+	BaseRepo        func() (ghrepo.Interface, error)
+	HasRepoOverride bool
+
 	branch     string
 	machine    string
 	showStatus bool
 }
 
-func newCreateCmd(app *App) *cobra.Command {
-	opts := createOptions{}
+func newCreateCmd(f *cmdutil.Factory, app *App) *cobra.Command {
+	opts := &createOptions{}
 
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a codespace",
 		Args:  noArgsConstraint,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.BaseRepo = f.BaseRepo
+			opts.HasRepoOverride = cmd.Flags().Changed("repo")
 			return app.Create(cmd.Context(), opts)
 		},
 	}
 
-	createCmd.Flags().StringVarP(&opts.repo, "repo", "r", "", "repository name with owner: user/repo")
+	cmdutil.EnableRepoOverride(createCmd, f)
 	createCmd.Flags().StringVarP(&opts.branch, "branch", "b", "", "repository branch")
 	createCmd.Flags().StringVarP(&opts.machine, "machine", "m", "", "hardware specifications for the VM")
 	createCmd.Flags().BoolVarP(&opts.showStatus, "status", "s", false, "show status of post-create command and dotfiles")
@@ -39,26 +45,31 @@ func newCreateCmd(app *App) *cobra.Command {
 }
 
 // Create creates a new Codespace
-func (a *App) Create(ctx context.Context, opts createOptions) error {
+func (a *App) Create(ctx context.Context, opts *createOptions) error {
 	locationCh := getLocation(ctx, a.apiClient)
+
+	baseRepo, _ := opts.BaseRepo()
 
 	userInputs := struct {
 		Repository string
 		Branch     string
 	}{
-		Repository: opts.repo,
+		Repository: "",
 		Branch:     opts.branch,
 	}
 
-	if userInputs.Repository == "" {
+	if !opts.HasRepoOverride {
 		branchPrompt := "Branch (leave blank for default branch):"
 		if userInputs.Branch != "" {
 			branchPrompt = "Branch:"
 		}
 		questions := []*survey.Question{
 			{
-				Name:     "repository",
-				Prompt:   &survey.Input{Message: "Repository:"},
+				Name: "repository",
+				Prompt: &survey.Input{
+					Message: "Repository:",
+					Default: ghrepo.FullName(baseRepo),
+				},
 				Validate: survey.Required,
 			},
 			{
@@ -69,6 +80,7 @@ func (a *App) Create(ctx context.Context, opts createOptions) error {
 				},
 			},
 		}
+
 		if err := ask(questions, &userInputs); err != nil {
 			return fmt.Errorf("failed to prompt: %w", err)
 		}

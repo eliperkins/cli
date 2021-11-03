@@ -133,7 +133,7 @@ func newCodespaceCmd(f *cmdutil.Factory) *cobra.Command {
 		f.IOStreams,
 		codespacesAPI.New("", &lazyLoadedHTTPClient{factory: f}),
 	)
-	cmd := codespaceCmd.NewRootCmd(app)
+	cmd := codespaceCmd.NewRootCmd(f, app)
 	cmd.Use = "codespace"
 	cmd.Aliases = []string{"cs"}
 	cmd.Annotations = map[string]string{"IsCore": "true"}
